@@ -1,0 +1,84 @@
+[Write a PowerShell script to create folders and sub-folders in the SharePoint document library And Count the pages of WORD FILE, PPT AND PDF]
+
+# Load PnP PowerShell Module
+Import-Module PnP.PowerShell
+
+# SharePoint Connection
+$SiteURL = "https://futurrizoninterns.sharepoint.com/sites/Shiva_Paying_Guest_House"
+Connect-PnPOnline -Url $SiteURL -UseWebLogin
+
+# Load PdfSharp DLL for PDF Processing
+Add-Type -Path "C:\Users\KEVAL JOSHI\Documents\Office_Files\PdfSharp.dll"
+
+# Load Word & PowerPoint Interop Assemblies
+$WordApp = New-Object -ComObject Word.Application
+$WordApp.Visible = $false
+$PowerPointApp = New-Object -ComObject PowerPoint.Application
+$PowerPointApp.Visible = $false
+
+# Function to Get PDF Page Count
+Function Get-PDFPageCount {
+    param ($FilePath)
+    $PDF = [PdfSharp.Pdf.IO.PdfReader]::Open($FilePath, [PdfSharp.Pdf.IO.PdfDocumentOpenMode]::ReadOnly)
+    $PageCount = $PDF.PageCount
+    $PDF.Close()
+    return $PageCount
+}
+
+# Function to Get Word Page Count
+Function Get-WordPageCount {
+    param ($FilePath)
+    $Doc = $WordApp.Documents.Open($FilePath)
+    $PageCount = $Doc.ComputeStatistics(2) # 2 = wdStatisticPages
+    $Doc.Close($false)
+    return $PageCount
+}
+
+# Function to Get PowerPoint Slide Count
+Function Get-PPTSlideCount {
+    param ($FilePath)
+    $Presentation = $PowerPointApp.Presentations.Open($FilePath, $false, $false, $false)
+    $SlideCount = $Presentation.Slides.Count
+    $Presentation.Close()
+    return $SlideCount
+}
+
+# SharePoint Library Name
+$LibraryName = "testinglib"
+
+# Get all PDF, Word, and PowerPoint Files in Library
+$Files = Get-PnPListItem -List $LibraryName | Where-Object { 
+    $_["File_x0020_Type"] -in @("pdf", "docx", "pptx") 
+}
+
+# Process Each File
+foreach ($File in $Files) {
+    $FilePath = $File["FileRef"]
+    $FileType = $File["File_x0020_Type"]
+    $LocalFile = "C:\Users\KEVAL JOSHI\Documents\Office_Files\demo_files\PDFs\" + $File["FileLeafRef"]
+
+    # Download File from SharePoint
+    Get-PnPFile -Url $FilePath -Path "C:\Users\KEVAL JOSHI\Documents\Office_Files\demo_files\PDFs\" -FileName $File["FileLeafRef"] -AsFile -Force
+
+    # Get Page Count Based on File Type
+    $PageCount = 0
+    if ($FileType -eq "pdf") {
+        $PageCount = Get-PDFPageCount -FilePath $LocalFile
+    } elseif ($FileType -eq "docx") {
+        $PageCount = Get-WordPageCount -FilePath $LocalFile
+    } elseif ($FileType -eq "pptx") {
+        $PageCount = Get-PPTSlideCount -FilePath $LocalFile
+    }
+
+    # ✅ Corrected column name
+    Set-PnPListItem -List $LibraryName -Identity $File.Id -Values @{"FilePagesCount" = $PageCount}
+
+    Write-Host "✅ Updated $($File['FileLeafRef']) with $PageCount pages/slides"
+}
+
+# Close Word & PowerPoint
+$WordApp.Quit()
+$PowerPointApp.Quit()
+
+# Disconnect SharePoint Session
+Disconnect-PnPOnline
